@@ -6,6 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/glass_button.dart';
 import '../../shared/widgets/glass_card.dart';
+import '../../shared/widgets/linksaver_logo.dart';
 import '../controllers/directory_controller.dart';
 import '../controllers/sync_engine.dart';
 import '../controllers/theme_controller.dart';
@@ -157,15 +158,16 @@ class _TopBar extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  width: 32,
-                  height: 32,
+                  width: 34,
+                  height: 34,
+                  padding: const EdgeInsets.all(5),
                   decoration: BoxDecoration(
-                    color: AppColors.primaryBlue.withValues(alpha: 0.20),
+                    color: AppColors.primaryBlue.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: AppColors.sapphireBlue.withValues(alpha: 0.40)),
                   ),
                   child: const Center(
-                    child: Icon(CupertinoIcons.link, size: 16, color: AppColors.sapphireBlue),
+                    child: LinkSaverLogo(size: 24),
                   ),
                 ),
                 const SizedBox(width: 10),

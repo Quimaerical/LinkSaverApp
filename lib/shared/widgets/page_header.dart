@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import 'linksaver_logo.dart';
 
 class PageHeader extends StatelessWidget {
   final String title;
@@ -8,6 +9,7 @@ class PageHeader extends StatelessWidget {
   final IconData? icon;
   final Widget? trailing;
   final AppThemeMode themeMode;
+  final bool showAppLogo;
 
   const PageHeader({
     super.key,
@@ -16,6 +18,7 @@ class PageHeader extends StatelessWidget {
     required this.themeMode,
     this.icon,
     this.trailing,
+    this.showAppLogo = true,
   });
 
   @override
@@ -32,7 +35,23 @@ class PageHeader extends StatelessWidget {
             Expanded(
               child: Row(
                 children: [
-                  if (icon != null) ...[
+                  if (showAppLogo) ...[
+                    Container(
+                      width: 36,
+                      height: 36,
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryBlue.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppColors.sapphireBlue.withValues(alpha: 0.35),
+                          width: 1.0,
+                        ),
+                      ),
+                      child: const LinkSaverLogo(size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                  ] else if (icon != null) ...[
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
