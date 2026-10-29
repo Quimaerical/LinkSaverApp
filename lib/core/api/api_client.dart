@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 class ApiException implements Exception {
@@ -133,15 +134,20 @@ class ApiClient {
 
   Future<List<int>> getRawBytes(String endpoint, {Map<String, String>? headers, Duration timeout = const Duration(seconds: 30)}) async {
     final uri = Uri.parse('$_baseUrl$endpoint');
+    debugPrint('[ApiClient] getRawBytes conectando a: $uri');
     try {
       final response = await _httpClient.get(uri, headers: _mergeHeaders(headers)).timeout(timeout);
+      debugPrint('[ApiClient] getRawBytes respuesta: ${response.statusCode} (${response.bodyBytes.length} bytes)');
       if (response.statusCode >= 200 && response.statusCode < 300) {
         return response.bodyBytes;
       }
-      throw ApiException('Error al descargar archivo (${response.statusCode})', response.statusCode);
-    } on SocketException {
+      debugPrint('[ApiClient] getRawBytes error payload: ${response.body}');
+      throw ApiException('Error al descargar archivo (${response.statusCode}): ${response.body}', response.statusCode);
+    } on SocketException catch (e) {
+      debugPrint('[ApiClient] getRawBytes SocketException: $e');
       throw ApiException('No se pudo conectar al servidor en $_baseUrl');
-    } on TimeoutException {
+    } on TimeoutException catch (e) {
+      debugPrint('[ApiClient] getRawBytes TimeoutException: $e');
       throw ApiException('Tiempo de espera agotado al descargar archivo');
     }
   }

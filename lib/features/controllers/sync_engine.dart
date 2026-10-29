@@ -108,12 +108,24 @@ class SyncEngine extends ChangeNotifier {
           _syncStatusText = 'Descargando $rel...';
           notifyListeners();
 
-          final bytes = await repository.downloadSaveFile(directory.tag, rel);
-          final targetFile = File(p.join(localPath, rel));
-          targetFile.parent.createSync(recursive: true);
-          await targetFile.writeAsBytes(bytes, flush: true);
-          debugPrint('[SyncEngine] [$rel] Guardado exitoso: ${targetFile.path} (${bytes.length} bytes)');
-          downloadedCount++;
+          try {
+            debugPrint('[SyncEngine] [$rel] Invocando downloadSaveFile(tag: ${directory.tag}, rel: $rel)...');
+            final bytes = await repository.downloadSaveFile(directory.tag, rel);
+            debugPrint('[SyncEngine] [$rel] Descarga completada: ${bytes.length} bytes recibidos.');
+
+            final targetFile = File(p.join(localPath, rel));
+            debugPrint('[SyncEngine] [$rel] Preparando guardado en: "${targetFile.path}"');
+            debugPrint('[SyncEngine] [$rel] Creando directorio padre: "${targetFile.parent.path}"...');
+            targetFile.parent.createSync(recursive: true);
+
+            debugPrint('[SyncEngine] [$rel] Escribiendo archivo en disco...');
+            await targetFile.writeAsBytes(bytes, flush: true);
+            debugPrint('[SyncEngine] [$rel] Guardado exitoso: ${targetFile.path} (existe: ${targetFile.existsSync()}, tamaño: ${targetFile.lengthSync()} bytes)');
+            downloadedCount++;
+          } catch (fileErr, stack) {
+            debugPrint('[SyncEngine] [$rel] ERROR FATAL AL DESCARGAR O ESCRIBIR: $fileErr\n$stack');
+            rethrow;
+          }
         } else if (localFile != null && remoteFile != null) {
           // Caso 3: Existe en ambos sitios -> Comparar hashes
           if (localHash!.toLowerCase() == remoteFile.sha256Hash.toLowerCase()) {
@@ -131,12 +143,20 @@ class SyncEngine extends ChangeNotifier {
               _syncStatusText = 'Actualizando $rel...';
               notifyListeners();
 
-              final bytes = await repository.downloadSaveFile(directory.tag, rel);
-              final targetFile = File(p.join(localPath, rel));
-              targetFile.parent.createSync(recursive: true);
-              await targetFile.writeAsBytes(bytes, flush: true);
-              debugPrint('[SyncEngine] [$rel] Sobrescrito con versión remota: ${targetFile.path}');
-              downloadedCount++;
+              try {
+                debugPrint('[SyncEngine] [$rel] Invocando downloadSaveFile(tag: ${directory.tag}, rel: $rel)...');
+                final bytes = await repository.downloadSaveFile(directory.tag, rel);
+                debugPrint('[SyncEngine] [$rel] Descarga completada: ${bytes.length} bytes recibidos.');
+
+                final targetFile = File(p.join(localPath, rel));
+                targetFile.parent.createSync(recursive: true);
+                await targetFile.writeAsBytes(bytes, flush: true);
+                debugPrint('[SyncEngine] [$rel] Sobrescrito con versión remota: ${targetFile.path} (tamaño: ${targetFile.lengthSync()})');
+                downloadedCount++;
+              } catch (fileErr, stack) {
+                debugPrint('[SyncEngine] [$rel] ERROR AL ACTUALIZAR: $fileErr\n$stack');
+                rethrow;
+              }
             } else {
               // Local es más reciente -> Subir al servidor
               debugPrint('[SyncEngine] [$rel] Local es más reciente -> Subiendo nueva versión...');
@@ -163,9 +183,10 @@ class SyncEngine extends ChangeNotifier {
       _syncStatusText = 'Sincronización finalizada: $uploadedCount subidas, $downloadedCount descargadas, $identicalCount al día';
       _progress = 1.0;
       debugPrint('[SyncEngine] $_syncStatusText');
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('[SyncEngine] ERROR GENERAL EN SINCRONIZACION: $e\n$stack');
       _lastError = 'Error de sincronización: $e';
-      _syncStatusText = 'Fallo en la sincronización';
+      _syncStatusText = 'Fallo en la sincronización: $e';
     } finally {
       _isSyncing = false;
       notifyListeners();
