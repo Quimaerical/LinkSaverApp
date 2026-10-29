@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
@@ -42,8 +43,14 @@ class SyncEngine extends ChangeNotifier {
     notifyListeners();
 
     try {
+      int uploadedCount = 0;
+      int downloadedCount = 0;
+      int identicalCount = 0;
+
       // 1. Obtener manifiesto remoto
+      debugPrint('[SyncEngine] Consultando manifiesto remoto de "${directory.tag}"...');
       final remoteManifest = await repository.getRemoteManifest(directory.tag);
+      debugPrint('[SyncEngine] Manifiesto remoto tiene ${remoteManifest.length} archivos: ${remoteManifest.keys.toList()}');
 
       // 2. Mapear archivos locales (todos los archivos, sin filtro de extensión)
       _syncStatusText = 'Escaneando archivos locales...';
@@ -52,63 +59,110 @@ class SyncEngine extends ChangeNotifier {
 
       final localFiles = <String, File>{};
       final localHashes = <String, String>{};
+      final localModTimes = <String, DateTime>{};
 
       final entities = localDir.listSync(recursive: true, followLinks: false);
       for (final entity in entities) {
         if (entity is File) {
-          final relPath = p.relative(entity.path, from: localPath).replaceAll('\\', '/');
-          localFiles[relPath] = entity;
-          final bytes = entity.readAsBytesSync();
-          localHashes[relPath] = sha256.convert(bytes).toString();
+          String relPath = p.relative(entity.path, from: localPath).replaceAll('\\', '/');
+          while (relPath.startsWith('/')) {
+            relPath = relPath.substring(1);
+          }
+          if (relPath.isNotEmpty) {
+            localFiles[relPath] = entity;
+            final bytes = entity.readAsBytesSync();
+            localHashes[relPath] = sha256.convert(bytes).toString();
+            localModTimes[relPath] = entity.lastModifiedSync();
+          }
         }
       }
+      debugPrint('[SyncEngine] Archivos locales detectados (${localFiles.length}): ${localFiles.keys.toList()}');
 
-      // 3. Subir archivos locales nuevos o modificados
+      // 3. Sincronizar unión de archivos locales y remotos
+      final allKeys = {...localFiles.keys, ...remoteManifest.keys};
       int processed = 0;
-      final totalOperations = localFiles.length + remoteManifest.length;
+      final totalOperations = allKeys.length;
 
-      for (final entry in localFiles.entries) {
-        final rel = entry.key;
-        final file = entry.value;
-        final localHash = localHashes[rel]!;
-        final remoteHash = remoteManifest[rel];
+      for (final rel in allKeys) {
+        final localFile = localFiles[rel];
+        final localHash = localHashes[rel];
+        final remoteFile = remoteManifest[rel];
 
-        if (remoteHash == null || remoteHash.toLowerCase() != localHash.toLowerCase()) {
+        if (localFile != null && remoteFile == null) {
+          // Caso 1: Solo existe en local -> Subir al servidor
+          debugPrint('[SyncEngine] [$rel] Solo local -> Subiendo...');
           _syncStatusText = 'Subiendo $rel...';
           notifyListeners();
-          final bytes = await file.readAsBytes();
+
+          final bytes = await localFile.readAsBytes();
           await repository.uploadSaveFile(
             tag: directory.tag,
             relativePath: rel,
             fileBytes: bytes,
-            localSha256: localHash,
+            localSha256: localHash!,
           );
-        }
-        processed++;
-        _progress = 0.25 + (0.50 * (processed / (totalOperations == 0 ? 1 : totalOperations)));
-        notifyListeners();
-      }
-
-      // 4. Descargar archivos que están en el servidor pero no en local
-      for (final remoteEntry in remoteManifest.entries) {
-        final rel = remoteEntry.key;
-        final localHash = localHashes[rel];
-
-        if (localHash == null) {
+          uploadedCount++;
+        } else if (localFile == null && remoteFile != null) {
+          // Caso 2: Solo existe en remoto -> Descargar a local
+          debugPrint('[SyncEngine] [$rel] Solo remoto -> Descargando...');
           _syncStatusText = 'Descargando $rel...';
           notifyListeners();
+
           final bytes = await repository.downloadSaveFile(directory.tag, rel);
           final targetFile = File(p.join(localPath, rel));
           targetFile.parent.createSync(recursive: true);
-          await targetFile.writeAsBytes(bytes);
+          await targetFile.writeAsBytes(bytes, flush: true);
+          debugPrint('[SyncEngine] [$rel] Guardado exitoso: ${targetFile.path} (${bytes.length} bytes)');
+          downloadedCount++;
+        } else if (localFile != null && remoteFile != null) {
+          // Caso 3: Existe en ambos sitios -> Comparar hashes
+          if (localHash!.toLowerCase() == remoteFile.sha256Hash.toLowerCase()) {
+            debugPrint('[SyncEngine] [$rel] Idéntico (${localHash.substring(0, min(8, localHash.length))}). Al día.');
+            identicalCount++;
+          } else {
+            // Hashes distintos: resolver por fecha de modificación
+            final localMod = localModTimes[rel] ?? DateTime.fromMillisecondsSinceEpoch(0);
+            final remoteMod = remoteFile.remoteModifiedAt;
+            debugPrint('[SyncEngine] [$rel] Diferencia de hash. Local: $localMod, Remoto: $remoteMod');
+
+            if (remoteMod.isAfter(localMod)) {
+              // Servidor es más reciente -> Descargar y sobrescribir
+              debugPrint('[SyncEngine] [$rel] Remoto es más reciente -> Descargando actualización...');
+              _syncStatusText = 'Actualizando $rel...';
+              notifyListeners();
+
+              final bytes = await repository.downloadSaveFile(directory.tag, rel);
+              final targetFile = File(p.join(localPath, rel));
+              targetFile.parent.createSync(recursive: true);
+              await targetFile.writeAsBytes(bytes, flush: true);
+              debugPrint('[SyncEngine] [$rel] Sobrescrito con versión remota: ${targetFile.path}');
+              downloadedCount++;
+            } else {
+              // Local es más reciente -> Subir al servidor
+              debugPrint('[SyncEngine] [$rel] Local es más reciente -> Subiendo nueva versión...');
+              _syncStatusText = 'Subiendo $rel...';
+              notifyListeners();
+
+              final bytes = await localFile.readAsBytes();
+              await repository.uploadSaveFile(
+                tag: directory.tag,
+                relativePath: rel,
+                fileBytes: bytes,
+                localSha256: localHash,
+              );
+              uploadedCount++;
+            }
+          }
         }
+
         processed++;
-        _progress = 0.25 + (0.50 * (processed / (totalOperations == 0 ? 1 : totalOperations)));
+        _progress = 0.25 + (0.75 * (processed / (totalOperations == 0 ? 1 : totalOperations)));
         notifyListeners();
       }
 
-      _syncStatusText = 'Sincronización completada exitosamente';
+      _syncStatusText = 'Sincronización finalizada: $uploadedCount subidas, $downloadedCount descargadas, $identicalCount al día';
       _progress = 1.0;
+      debugPrint('[SyncEngine] $_syncStatusText');
     } catch (e) {
       _lastError = 'Error de sincronización: $e';
       _syncStatusText = 'Fallo en la sincronización';

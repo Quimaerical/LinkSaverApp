@@ -2,6 +2,7 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/api/api_client.dart';
 import 'directory_model.dart';
+import 'manifest_file_model.dart';
 import 'save_file_model.dart';
 import 'sync_log_model.dart';
 
@@ -17,7 +18,7 @@ abstract class LinkSaverRepository {
   Future<List<SaveFileModel>> getVaultHistory(String tag);
   Future<void> restoreSaveVersion(String tag, int fileId);
   Future<List<SyncLogModel>> getAuditLogs({int limit = 50});
-  Future<Map<String, String>> getRemoteManifest(String tag);
+  Future<Map<String, ManifestFileModel>> getRemoteManifest(String tag);
   Future<void> uploadSaveFile({
     required String tag,
     required String relativePath,
@@ -109,17 +110,20 @@ class HttpLinkSaverRepository implements LinkSaverRepository {
   }
 
   @override
-  Future<Map<String, String>> getRemoteManifest(String tag) async {
+  Future<Map<String, ManifestFileModel>> getRemoteManifest(String tag) async {
     final response = await apiClient.get('/api/v1/sync/manifest/$tag');
-    final manifestMap = <String, String>{};
+    final manifestMap = <String, ManifestFileModel>{};
     if (response is Map && response['files'] is List) {
       final filesList = response['files'] as List;
       for (final item in filesList) {
         if (item is Map) {
-          final relPath = item['relative_path']?.toString();
-          final hash = item['sha256_hash']?.toString() ?? item['sha256']?.toString();
-          if (relPath != null && relPath.isNotEmpty && hash != null) {
-            manifestMap[relPath] = hash;
+          final model = ManifestFileModel.fromJson(Map<String, dynamic>.from(item));
+          String cleanPath = model.relativePath.replaceAll('\\', '/');
+          while (cleanPath.startsWith('/')) {
+            cleanPath = cleanPath.substring(1);
+          }
+          if (cleanPath.isNotEmpty) {
+            manifestMap[cleanPath] = model;
           }
         }
       }
