@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+import '../../core/services/storage_permission_service.dart';
 import '../data/directory_model.dart';
 import '../data/linksaver_repository.dart';
 
@@ -27,6 +28,17 @@ class SyncEngine extends ChangeNotifier {
       _lastError = 'El tag "${directory.tag}" no tiene una ruta local asignada.';
       notifyListeners();
       return;
+    }
+
+    if (Platform.isAndroid) {
+      final hasPermission = await StoragePermissionService.hasStoragePermission();
+      if (!hasPermission) {
+        _lastError = 'Permiso de acceso a todos los archivos requerido. Por favor concédalo en Ajustes.';
+        _syncStatusText = 'Permiso requerido';
+        notifyListeners();
+        await StoragePermissionService.requestStoragePermission();
+        return;
+      }
     }
 
     final localDir = Directory(localPath);
