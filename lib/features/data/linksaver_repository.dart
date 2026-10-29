@@ -1,3 +1,4 @@
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/api/api_client.dart';
 import 'directory_model.dart';
@@ -110,10 +111,20 @@ class HttpLinkSaverRepository implements LinkSaverRepository {
   @override
   Future<Map<String, String>> getRemoteManifest(String tag) async {
     final response = await apiClient.get('/api/v1/sync/manifest/$tag');
-    if (response is Map) {
-      return response.map((key, value) => MapEntry(key.toString(), value.toString()));
+    final manifestMap = <String, String>{};
+    if (response is Map && response['files'] is List) {
+      final filesList = response['files'] as List;
+      for (final item in filesList) {
+        if (item is Map) {
+          final relPath = item['relative_path']?.toString();
+          final hash = item['sha256_hash']?.toString() ?? item['sha256']?.toString();
+          if (relPath != null && relPath.isNotEmpty && hash != null) {
+            manifestMap[relPath] = hash;
+          }
+        }
+      }
     }
-    return {};
+    return manifestMap;
   }
 
   @override
@@ -127,10 +138,11 @@ class HttpLinkSaverRepository implements LinkSaverRepository {
       endpoint: '/api/v1/sync/upload/$tag',
       fileParamName: 'file',
       fileBytes: fileBytes,
-      filename: relativePath,
+      filename: p.basename(relativePath),
       fields: {
         'relative_path': relativePath,
         'sha256': localSha256,
+        'client_type': 'Android',
       },
     );
   }
