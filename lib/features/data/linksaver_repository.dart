@@ -86,7 +86,10 @@ class HttpLinkSaverRepository implements LinkSaverRepository {
   @override
   Future<List<SaveFileModel>> getVaultHistory(String tag) async {
     final response = await apiClient.get('/api/v1/vault/$tag/history');
-    if (response is List) {
+    if (response is Map && response['saves'] is List) {
+      final list = response['saves'] as List;
+      return list.map((item) => SaveFileModel.fromJson(Map<String, dynamic>.from(item))).toList();
+    } else if (response is List) {
       return response.map((item) => SaveFileModel.fromJson(Map<String, dynamic>.from(item))).toList();
     }
     return [];
